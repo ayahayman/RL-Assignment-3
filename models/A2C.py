@@ -1,3 +1,4 @@
+# models/A2C.py
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -5,36 +6,45 @@ import torch.nn.functional as F
 import numpy as np
 
 
+# -------------------------------------------------
+# Actor network
+# -------------------------------------------------
 class ActorNetwork(nn.Module):
     def __init__(self, obs_dim, act_dim, hidden_sizes):
         super().__init__()
         layers = []
-        last_dim = obs_dim
+        last = obs_dim
         for h in hidden_sizes:
-            layers += [nn.Linear(last_dim, h), nn.ReLU()]
-            last_dim = h
-        layers.append(nn.Linear(last_dim, act_dim))
+            layers += [nn.Linear(last, h), nn.ReLU()]
+            last = h
+        layers.append(nn.Linear(last, act_dim))
         self.model = nn.Sequential(*layers)
 
-    def forward(self, obs):
-        return self.model(obs)
+    def forward(self, x):
+        return self.model(x)
 
 
+# -------------------------------------------------
+# Critic network
+# -------------------------------------------------
 class CriticNetwork(nn.Module):
     def __init__(self, obs_dim, hidden_sizes):
         super().__init__()
         layers = []
-        last_dim = obs_dim
+        last = obs_dim
         for h in hidden_sizes:
-            layers += [nn.Linear(last_dim, h), nn.ReLU()]
-            last_dim = h
-        layers.append(nn.Linear(last_dim, 1))
+            layers += [nn.Linear(last, h), nn.ReLU()]
+            last = h
+        layers.append(nn.Linear(last, 1))
         self.model = nn.Sequential(*layers)
 
-    def forward(self, obs):
-        return self.model(obs).squeeze(-1)
+    def forward(self, x):
+        return self.model(x).squeeze(-1)
 
 
+# -------------------------------------------------
+# A2C Agent
+# -------------------------------------------------
 class A2CAgent:
     def __init__(
         self,
@@ -43,7 +53,7 @@ class A2CAgent:
         hidden_sizes=(128, 128),
         lr=3e-4,
         gamma=0.99,
-        entropy_coef=0.01,
+        entropy_coef=0.001,
         device="cpu",
     ):
         self.gamma = gamma
@@ -56,69 +66,70 @@ class A2CAgent:
         self.actor_opt = optim.Adam(self.actor.parameters(), lr=lr)
         self.critic_opt = optim.Adam(self.critic.parameters(), lr=lr)
 
-        # buffers
+        # Replay buffers for episode-based update
         self.obs_buf = []
         self.act_buf = []
         self.rew_buf = []
         self.done_buf = []
         self.logp_buf = []
-        self.value_buf = []   # STORES TENSORS
 
     # -------------------------------------------------------------
+    # ACTION SELECTION
+    # -------------------------------------------------------------
     def select_action(self, obs):
-        obs_t = torch.as_tensor(obs, dtype=torch.float32).to(self.device).unsqueeze(0)
+        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
 
         logits = self.actor(obs_t)
         probs = F.softmax(logits, dim=-1)
         dist = torch.distributions.Categorical(probs)
 
         action = dist.sample()
-        logp = dist.log_prob(action)
+        logp = dist.log_prob(action).item()
 
-        value = self.critic(obs_t)   # TENSOR WITH GRAD
-
-        return (
-            action.item(),
-            logp.detach(),          # store detached version
-            value.squeeze(0)        # store tensor, NOT a float
-        )
+        return action.item(), logp  # EXACTLY 2 VALUES
 
     # -------------------------------------------------------------
-    def store(self, obs, act, rew, done, logp, value):
+    def store(self, obs, act, rew, done, logp):
         self.obs_buf.append(obs)
         self.act_buf.append(act)
         self.rew_buf.append(rew)
         self.done_buf.append(done)
         self.logp_buf.append(logp)
-        self.value_buf.append(value)   # STORES TENSOR
 
     # -------------------------------------------------------------
+    # EPISODIC RETURNS
+    # -------------------------------------------------------------
     def compute_returns(self):
-        returns = []
         R = 0
-        for reward, done in zip(reversed(self.rew_buf), reversed(self.done_buf)):
-            if done:
+        returns = []
+        for r, d in zip(reversed(self.rew_buf), reversed(self.done_buf)):
+            if d:
                 R = 0
-            R = reward + self.gamma * R
+            R = r + self.gamma * R
             returns.insert(0, R)
         return torch.tensor(returns, dtype=torch.float32, device=self.device)
 
     # -------------------------------------------------------------
+    # A2C UPDATE
+    # -------------------------------------------------------------
     def update(self):
         obs = torch.tensor(np.array(self.obs_buf), dtype=torch.float32, device=self.device)
         acts = torch.tensor(self.act_buf, dtype=torch.long, device=self.device)
-
-        values = torch.stack(self.value_buf).to(self.device)   # KEEPS GRAD
+        logps_old = torch.tensor(self.logp_buf, dtype=torch.float32, device=self.device)
 
         returns = self.compute_returns()
+
+        # Critic forward
+        values = self.critic(obs)
         advantage = returns - values.detach()
 
         # Actor forward
         logits = self.actor(obs)
         probs = F.softmax(logits, dim=-1)
-        dist = torch.distributions.Categorical(probs)
-        logps = dist.log_prob(acts)
-        entropy = dist.entropy().mean()
+        d = torch.distributions.Categorical(probs)
+        logps = d.log_prob(acts)
+
+        entropy = d.entropy().mean()
 
         actor_loss = -(logps * advantage).mean() - self.entropy_coef * entropy
         critic_loss = F.mse_loss(values, returns)
@@ -133,12 +144,11 @@ class A2CAgent:
         critic_loss.backward()
         self.critic_opt.step()
 
-        # clear buffers
+        # Clear buffers
         self.obs_buf.clear()
         self.act_buf.clear()
         self.rew_buf.clear()
         self.done_buf.clear()
         self.logp_buf.clear()
-        self.value_buf.clear()
 
         return actor_loss.item(), critic_loss.item()
