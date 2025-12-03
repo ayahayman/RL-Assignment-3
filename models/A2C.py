@@ -60,6 +60,8 @@ class A2CAgent:
         self.entropy_coef = entropy_coef
         self.device = device
 
+        self.act_dim = act_dim
+        
         self.actor = ActorNetwork(obs_dim, act_dim, hidden_sizes).to(device)
         self.critic = CriticNetwork(obs_dim, hidden_sizes).to(device)
 
