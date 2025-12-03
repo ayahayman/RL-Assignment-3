@@ -51,7 +51,8 @@ class A2CAgent:
         obs_dim,
         act_dim,
         hidden_sizes=(128, 128),
-        lr=3e-4,
+        actor_lr=3e-4,
+        critic_lr=3e-4,
         gamma=0.99,
         entropy_coef=0.001,
         device="cpu",
@@ -65,8 +66,8 @@ class A2CAgent:
         self.actor = ActorNetwork(obs_dim, act_dim, hidden_sizes).to(device)
         self.critic = CriticNetwork(obs_dim, hidden_sizes).to(device)
 
-        self.actor_opt = optim.Adam(self.actor.parameters(), lr=lr)
-        self.critic_opt = optim.Adam(self.critic.parameters(), lr=lr)
+        self.actor_opt = optim.Adam(self.actor.parameters(), lr=actor_lr)
+        self.critic_opt = optim.Adam(self.critic.parameters(), lr=critic_lr)
 
         # Replay buffers for episode-based update
         self.obs_buf = []

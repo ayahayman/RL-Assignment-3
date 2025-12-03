@@ -3,7 +3,6 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from models.A2C import A2CAgent
-import os
 
 # ============================================================
 # ENV MENU
@@ -22,19 +21,12 @@ PENDULUM_TORQUES = np.linspace(-2.0, 2.0, 9).astype(np.float32)
 # ============================================================
 # EVALUATE FUNCTION
 # ============================================================
-def evaluate(env_name, act_dim, discrete, episodes):
-
-    model_path = f"trained_models/A2C/a2c_{env_name}.pth"
-
-    if not os.path.exists(model_path):
-        print(f"\n❌ ERROR: Model not found: {model_path}")
-        return
-
-    print(f"\n📦 Loading model from: {model_path}")
+def evaluate(model_path, env_name, act_dim, discrete, episodes):
 
     env = gym.make(env_name)
     obs_dim = env.observation_space.shape[0]
 
+    # Load checkpoint
     checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
 
     agent = A2CAgent(
@@ -47,6 +39,7 @@ def evaluate(env_name, act_dim, discrete, episodes):
     agent.actor.load_state_dict(checkpoint["actor"])
     agent.critic.load_state_dict(checkpoint["critic"])
 
+    print(f"\nLoaded model: {model_path}")
     print(f"Environment: {env_name}")
     print(f"Discrete: {discrete}   |   Action dim: {act_dim}\n")
 
@@ -90,10 +83,11 @@ def evaluate(env_name, act_dim, discrete, episodes):
     print(f"Max duration:  {durations.max()}")
     print("====================================\n")
 
+    # Save histogram
     filename = f"{env_name}_a2c_test_hist.png"
     plt.figure(figsize=(8, 5))
     plt.hist(durations, bins=20, edgecolor='black')
-    plt.title(f"A2C Test Durations ({env_name})")
+    plt.title(f"A2C Test Episode Durations ({env_name})")
     plt.xlabel("Episode Length")
     plt.ylabel("Count")
     plt.grid(True, alpha=0.3)
@@ -103,7 +97,7 @@ def evaluate(env_name, act_dim, discrete, episodes):
 
 
 # ============================================================
-# INTERACTIVE MENU (NO ARGUMENTS)
+# INTERACTIVE MODE (NO ARGUMENTS)
 # ============================================================
 if __name__ == "__main__":
 
@@ -122,9 +116,11 @@ if __name__ == "__main__":
 
     env_name, discrete, act_dim = ENV_MENU[choice]
 
+    model_path = input("\nEnter model filename (example: a2c_CartPole-v1.pth): ").strip()
     episodes = int(input("How many episodes to test? (default 100): ") or "100")
 
     evaluate(
+        model_path=model_path,
         env_name=env_name,
         act_dim=act_dim,
         discrete=discrete,
