@@ -83,10 +83,10 @@ A2C_CONFIG = {
 
     "Pendulum-v1": {
         "actor_lr": 0.0003,
-        "critic_lr": 0.001,      # critic needs larger LR to stabilize value estimates
+        "critic_lr": 0.0005,      # critic needs larger LR to stabilize value estimates
 
-        "gamma": 0.95,
-        "entropy_coef": 0.001,
+        "gamma": 0.999,
+        "entropy_coef": 0.01,
 
         "hidden_sizes": (128, 128),    # better for continuous control
 
@@ -109,13 +109,15 @@ SAC_CONFIG = {
         "Training Episodes": 500
     },
     "CartPole-v1": {
-        "Gamma": 0.999,
-        "Actor LR": 0.0004,
+        "Gamma": 0.99,
+        "Actor LR": 0.001,
         "Critic 1 LR": 0.001,
         "Critic 2 LR": 0.001,
-        "Entropy Coef": 0.01,
+        "Entropy Coef": 0.2,
         "Hidden Dim": 128,
-        "Training Episodes": 500
+        "Training Episodes": 500,
+        "n_steps": 1
+
     },
     "Acrobot-v1": {
         "Gamma": 0.99,
@@ -135,7 +137,7 @@ SAC_CONFIG = {
         "Hidden Dim": 128,
         "Training Episodes": 1000
     },
-    "Pendulum-v1": {
+   "Pendulum-v1": {
         "Gamma": 0.97,
         "Actor LR": 0.00025,
         "Critic 1 LR": 0.0005,
@@ -143,6 +145,7 @@ SAC_CONFIG = {
         "Entropy Coef": 0.005,
         "Hidden Dim": 256,
         "Training Episodes": 1000
+    
     }
 }
 # Add this new function for SAC

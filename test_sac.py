@@ -27,7 +27,7 @@ def evaluate(model_path, env_name, act_dim, discrete, episodes, action_bins=None
 
     obs_dim = env.observation_space.shape[0]
 
-    # Load checkpoint with weights_only=False
+    # Load checkpoint
     checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
 
     agent = SACAgent(
@@ -49,62 +49,47 @@ def evaluate(model_path, env_name, act_dim, discrete, episodes, action_bins=None
     print(f"Environment: {env_name}")
     print(f"Discrete: {discrete}   |   Action dim: {act_dim}\n")
 
-    durations = []
+    rewards = []
 
     for ep in range(episodes):
         obs, _ = env.reset()
         done = False
-        steps = 0
+        total_reward = 0
 
         while not done:
             action = agent.select_action(obs)
-            next_obs, _, terminated, truncated, _ = env.step(action)
+            next_obs, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
 
             obs = next_obs
-            steps += 1
+            total_reward += reward
 
-        durations.append(steps)
-        print(f"Episode {ep+1}/{episodes}: {steps} steps")
+        rewards.append(total_reward)
+        print(f"Episode {ep+1}/{episodes}: Reward={total_reward:.2f}")
 
     env.close()
 
-    durations = np.array(durations)
-
-    # Log results to a text file
-    os.makedirs("tests/SAC", exist_ok=True)
-    log_file = os.path.join("tests/SAC", f"{env_name}_sac_test_results.txt")
-    with open(log_file, "w") as f:
-        f.write("Episode Rewards:\n")
-        for i, reward in enumerate(durations, 1):
-            f.write(f"Episode {i}: {reward} steps\n")
-        f.write("\n========== TEST SUMMARY ============\n")
-        f.write(f"Mean duration:  {durations.mean():.2f}\n")
-        f.write(f"Std deviation: {durations.std():.2f}\n")
-        f.write(f"Min duration:  {durations.min()}\n")
-        f.write(f"Max duration:  {durations.max()}\n")
-        f.write("====================================\n")
-
-    print(f"\nResults saved to: {log_file}")
+    rewards = np.array(rewards)
 
     print("\n========== TEST SUMMARY ============")
-    print(f"Mean duration:  {durations.mean():.2f}")
-    print(f"Std deviation: {durations.std():.2f}")
-    print(f"Min duration:  {durations.min()}")
-    print(f"Max duration:  {durations.max()}")
+    print(f"Mean reward:  {rewards.mean():.2f}")
+    print(f"Std deviation: {rewards.std():.2f}")
+    print(f"Min reward:  {rewards.min()}")
+    print(f"Max reward:  {rewards.max()}")
     print("====================================\n")
 
-    # Save histogram
-    filename = f"{env_name}_sac_test_hist.png"
+    # Save rewards graph in graphs/SAC folder
+    os.makedirs("graphs/SAC", exist_ok=True)
+    graph_filename = os.path.join("graphs", "SAC", f"{env_name}_sac_test_rewards.png")
     plt.figure(figsize=(8, 5))
-    plt.hist(durations, bins=20, edgecolor='black')
-    plt.title(f"SAC Test Episode Durations ({env_name})")
-    plt.xlabel("Episode Length")
-    plt.ylabel("Count")
+    plt.plot(range(1, episodes + 1), rewards, marker='o', linestyle='-', color='b')
+    plt.title(f"SAC Test Rewards ({env_name})")
+    plt.xlabel("Episode")
+    plt.ylabel("Reward")
     plt.grid(True, alpha=0.3)
-    plt.savefig(filename)
+    plt.savefig(graph_filename)
 
-    print(f"Saved histogram: {filename}")
+    print(f"Saved rewards graph: {graph_filename}")
 
 
 # ============================================================

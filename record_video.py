@@ -82,7 +82,6 @@ def run_episode_sac(env, agent, discrete):
 # MAIN RECORD FUNCTION
 # ============================================================
 def record_video(algorithm, env_name, is_discrete, episodes):
-
     # Load config
     cfg = get_config(env_name)
 
@@ -122,36 +121,37 @@ def record_video(algorithm, env_name, is_discrete, episodes):
             entropy_coef=cfg["entropy_coef"],
         )
 
-        checkpoint = torch.load(model_path, map_location="cpu")
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
         agent.actor.load_state_dict(checkpoint["actor"])
         agent.critic.load_state_dict(checkpoint["critic"])
 
         run_episode_fn = run_episode_a2c
 
     else:  # SAC
-        base = f"trained_models/SAC/sac_{env_name}"
-        actor_path = base + "_actor.pth"
-        critic1_path = base + "_critic1.pth"
-        critic2_path = base + "_critic2.pth"
+        model_path = f"trained_models/SAC/sac_{env_name}.pth"
 
-        if not (os.path.exists(actor_path) and os.path.exists(critic1_path) and os.path.exists(critic2_path)):
-            print("❌ SAC model files not found!")
+        if not os.path.exists(model_path):
+            print(f"❌ Model not found: {model_path}")
             return
 
-        print(f"📦 Loading SAC model: {actor_path}")
+        print(f"📦 Loading SAC model: {model_path}")
+
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
 
         agent = SACAgent(
             state_dim=obs_dim,
             action_dim=act_dim,
-            hidden_dim=128,
-            gamma=cfg["gamma"],
-            actor_lr=cfg["actor_lr"],
-            critic1_lr=cfg["critic_lr"],
-            critic2_lr=cfg["critic_lr"],
-            entropy_coef=cfg["entropy_coef"],
+            hidden_dim=checkpoint["hidden_dim"],
+            gamma=checkpoint["gamma"],
+            actor_lr=checkpoint["actor_lr"],
+            critic1_lr=checkpoint["critic1_lr"],
+            critic2_lr=checkpoint["critic2_lr"],
+            entropy_coef=checkpoint["entropy_coef"],
         )
 
-        agent.load_models(actor_path, critic1_path, critic2_path)
+        agent.actor.load_state_dict(checkpoint["actor"])
+        agent.critic1.load_state_dict(checkpoint["critic1"])
+        agent.critic2.load_state_dict(checkpoint["critic2"])
 
         run_episode_fn = run_episode_sac
 

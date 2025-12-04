@@ -2,6 +2,7 @@ import os
 import numpy as np
 import torch
 import gymnasium as gym
+import wandb  # Add W&B import
 from utils.discrete_pendulum import DiscretePendulum
 from models.SAC import SACAgent
 from config import get_sac_config
@@ -35,7 +36,7 @@ def make_env_and_actions(env_name: str, action_bins: int):
 # ============================================================
 # TRAINING LOOP
 # ============================================================
-def train_sac(env, agent, episodes, save_dir):
+def train_sac(env, agent, episodes, save_dir, use_wandb):
     os.makedirs(save_dir, exist_ok=True)
     env_name = env.spec.id
 
@@ -68,8 +69,7 @@ def train_sac(env, agent, episodes, save_dir):
             total_reward += reward
             steps += 1
 
-            # --- UPDATE LOGIC (same as your other SAC version) ---
-            # Perform update every n steps OR at episode end
+            # --- UPDATE LOGIC ---
             should_update = False
 
             if env_name == "MountainCar-v0":
@@ -95,6 +95,17 @@ def train_sac(env, agent, episodes, save_dir):
             episode_actor_loss /= update_count
             episode_critic1_loss /= update_count
             episode_critic2_loss /= update_count
+
+        # Log metrics to W&B
+        if use_wandb:
+            wandb.log({
+                "episode": ep,
+                "reward": total_reward,
+                "steps": steps,
+                "actor_loss": episode_actor_loss,
+                "critic1_loss": episode_critic1_loss,
+                "critic2_loss": episode_critic2_loss,
+            })
 
         print(
             f"Episode {ep+1}/{episodes} | Reward={total_reward:.2f} | Steps={steps} "
@@ -146,7 +157,6 @@ if __name__ == "__main__":
         print("❌ Invalid choice.")
         exit()
 
-    
     env_name = ENV_MENU[choice]
     print("Selected environment:", env_name)
     # Load full config for this environment
@@ -162,6 +172,15 @@ if __name__ == "__main__":
     episodes = cfg["Training Episodes"]
     action_bins = cfg.get("Action Bins", 9)  # Default to 9 for Pendulum
     save_dir = "trained_models/SAC"
+
+    # W&B logging
+    use_wandb = cfg.get("wandb", True)
+    if use_wandb:
+        wandb.init(
+            project="RL-Assignment3",
+            name=f"SAC_{env_name}",
+            config=cfg
+        )
 
     print(f"\n📌 Loaded hyperparameters from config.py:\n{cfg}\n")
 
@@ -181,7 +200,10 @@ if __name__ == "__main__":
     )
 
     # Train
-    train_sac(env=env, agent=agent, episodes=episodes, save_dir=save_dir)
+    train_sac(env=env, agent=agent, episodes=episodes, save_dir=save_dir, use_wandb=use_wandb)
+
+    if use_wandb:
+        wandb.finish()
 
     env.close()
 
