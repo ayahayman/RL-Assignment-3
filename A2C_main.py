@@ -1,4 +1,4 @@
-# a2c_main.py (Interactive version)
+# a2c_main.py (Interactive version, now uses config.py)
 
 import os
 from datetime import datetime
@@ -9,6 +9,7 @@ import torch
 import wandb
 
 from models.A2C import A2CAgent
+from config import get_config   # <-- NEW: import config loader
 
 
 # ============================================================
@@ -16,22 +17,18 @@ from models.A2C import A2CAgent
 # ============================================================
 
 ENV_MENU = {
-    1: ("CartPole-v1", True),           # discrete
-    2: ("MountainCar-v0", True),        # discrete
-    3: ("Acrobot-v1", True),            # discrete
-    4: ("Pendulum-v1", False)           # continuous → discretized
+    1: ("CartPole-v1", True),
+    2: ("MountainCar-v0", True),
+    3: ("Acrobot-v1", True),
+    4: ("Pendulum-v1", False)   # continuous → discretized
 }
-
-# torque discretization for Pendulum
-PENDULUM_BINS = 9
-PENDULUM_TORQUES = np.linspace(-2.0, 2.0, PENDULUM_BINS).astype(np.float32)
 
 
 # ============================================================
 # MAKE ENV + ACTION SPACE WRAPPER
 # ============================================================
 
-def make_env_and_actions(env_name: str, is_discrete: bool):
+def make_env_and_actions(env_name: str, is_discrete: bool, action_bins: int):
     env = gym.make(env_name)
     obs_dim = env.observation_space.shape[0]
 
@@ -39,9 +36,11 @@ def make_env_and_actions(env_name: str, is_discrete: bool):
         act_dim = env.action_space.n
         action_values = None
     else:
-        # Pendulum: discretize continuous torque
-        act_dim = PENDULUM_BINS
-        action_values = PENDULUM_TORQUES
+        # discretize continuous torque
+        low = float(env.action_space.low.min())
+        high = float(env.action_space.high.max())
+        action_values = np.linspace(low, high, action_bins).astype(np.float32)
+        act_dim = len(action_values)
 
     return env, obs_dim, act_dim, action_values
 
@@ -51,7 +50,6 @@ def make_env_and_actions(env_name: str, is_discrete: bool):
 # ============================================================
 
 def train_a2c(env, agent, episodes, action_values, use_wandb, save_dir):
-
     os.makedirs(save_dir, exist_ok=True)
     env_name = env.spec.id
 
@@ -66,7 +64,6 @@ def train_a2c(env, agent, episodes, action_values, use_wandb, save_dir):
         while not done:
             action_idx, logp = agent.select_action(obs)
 
-            # map discrete → real continuous torque (Pendulum)
             if action_values is not None:
                 action = np.array([action_values[action_idx]], dtype=np.float32)
                 next_obs, reward, terminated, truncated, _ = env.step(action)
@@ -80,7 +77,6 @@ def train_a2c(env, agent, episodes, action_values, use_wandb, save_dir):
             total_reward += reward
             steps += 1
 
-        # update
         actor_loss, critic_loss = agent.update()
 
         if use_wandb:
@@ -92,8 +88,10 @@ def train_a2c(env, agent, episodes, action_values, use_wandb, save_dir):
                 "critic_loss": critic_loss,
             })
 
-        print(f"Episode {ep+1}/{episodes} | Reward={total_reward:.2f} "
-              f"| Steps={steps} | A_Loss={actor_loss:.4f} | C_Loss={critic_loss:.4f}")
+        print(
+            f"Episode {ep+1}/{episodes} | Reward={total_reward:.2f} "
+            f"| Steps={steps} | A_Loss={actor_loss:.4f} | C_Loss={critic_loss:.4f}"
+        )
 
     # save final model
     save_path = os.path.join(save_dir, f"a2c_{env_name}.pth")
@@ -105,7 +103,6 @@ def train_a2c(env, agent, episodes, action_values, use_wandb, save_dir):
     }, save_path)
 
     print(f"\n💾 Model saved to {save_path}")
-
     return save_path
 
 
@@ -114,7 +111,6 @@ def train_a2c(env, agent, episodes, action_values, use_wandb, save_dir):
 # ============================================================
 
 if __name__ == "__main__":
-
     print("\n======= A2C TRAINER =======")
     print("Select environment to train:")
     print("1 → CartPole-v1")
@@ -131,36 +127,37 @@ if __name__ == "__main__":
 
     env_name, is_discrete = ENV_MENU[choice]
 
-    # episodes
-    episodes = int(input("Number of training episodes (default=500): ") or "500")
+    # Load full config for this environment
+    cfg = get_config(env_name)
 
-    # wandb logging?
-    use_wandb = input("Enable Weights & Biases logging? (y/n): ").lower().startswith("y")
+    # Unpack settings
+    actor_lr              = cfg["actor_lr"]
+    critic_lr           =cfg["critic_lr"]
+    gamma           = cfg["gamma"]
+    entropy_coef    = cfg["entropy_coef"]
+    hidden_sizes    = cfg["hidden_sizes"]
+    episodes        = cfg["episodes"]
+    seed            = cfg["seed"]
+    action_bins     = cfg["action_bins"]
+    save_dir        = cfg["save_dir"]
+    use_wandb       = cfg["wandb"]
 
-    # learning settings
-    lr = 3e-4
-    gamma = 0.99
-    entropy_coef = 0.001
-    hidden_sizes = (128, 128)
+    print(f"\n📌 Loaded hyperparameters from config.py:\n{cfg}\n")
 
-    # create environment
-    env, obs_dim, act_dim, action_values = make_env_and_actions(env_name, is_discrete)
+    # Set seed
+    if seed is not None:
+        np.random.seed(seed)
+        torch.manual_seed(seed)
 
-    # initialize wandb
+    # Create environment
+    env, obs_dim, act_dim, action_values = make_env_and_actions(env_name, is_discrete, action_bins)
+
+    # Initialize wandb
     if use_wandb:
         wandb.init(
             project="RL-Assignment3",
             name=f"A2C_{env_name}",
-            config={
-                "env": env_name,
-                "episodes": episodes,
-                "lr": lr,
-                "gamma": gamma,
-                "entropy_coef": entropy_coef,
-                "hidden_sizes": hidden_sizes,
-                "discrete": is_discrete,
-                "action_bins": PENDULUM_BINS if not is_discrete else None,
-            }
+            config=cfg
         )
 
     # Create agent
@@ -168,7 +165,8 @@ if __name__ == "__main__":
         obs_dim=obs_dim,
         act_dim=act_dim,
         hidden_sizes=hidden_sizes,
-        lr=lr,
+        actor_lr=actor_lr,
+        critic_lr=critic_lr,
         gamma=gamma,
         entropy_coef=entropy_coef,
         device="cpu"
@@ -181,7 +179,7 @@ if __name__ == "__main__":
         episodes=episodes,
         action_values=action_values,
         use_wandb=use_wandb,
-        save_dir="trained_models/A2C"
+        save_dir=save_dir
     )
 
     if use_wandb:

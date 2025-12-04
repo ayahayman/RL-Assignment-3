@@ -2,42 +2,48 @@ import gymnasium as gym
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from models.SAC import SACAgent
+from utils.discrete_pendulum import DiscretePendulum
 import os
-from models.A2C import A2CAgent
 
 # ============================================================
 # ENV MENU
 # ============================================================
 ENV_MENU = {
-    1: ("CartPole-v1", True, 2),
-    2: ("MountainCar-v0", True, 3),
-    3: ("Acrobot-v1", True, 3),
+    1: ("CartPole-v1", True, None),
+    2: ("MountainCar-v0", True, None),
+    3: ("Acrobot-v1", True, None),
     4: ("Pendulum-v1", False, 9)  # continuous but discretized
 }
-
-# Discretized torque values for Pendulum
-PENDULUM_TORQUES = np.linspace(-2.0, 2.0, 9).astype(np.float32)
-
 
 # ============================================================
 # EVALUATE FUNCTION
 # ============================================================
-def evaluate(model_path, env_name, act_dim, discrete, episodes):
-    env = gym.make(env_name)
+def evaluate(model_path, env_name, act_dim, discrete, episodes, action_bins=None):
+    if env_name == "Pendulum-v1" and not discrete:
+        env = DiscretePendulum(gym.make(env_name), num_actions=action_bins)
+    else:
+        env = gym.make(env_name)
+
     obs_dim = env.observation_space.shape[0]
 
-    # Load checkpoint with weights_only=False
+    # Load checkpoint
     checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
 
-    agent = A2CAgent(
-        obs_dim=obs_dim,
-        act_dim=act_dim,
-        hidden_sizes=(128, 128),
-        device="cpu"
+    agent = SACAgent(
+        state_dim=obs_dim,
+        action_dim=act_dim,
+        hidden_dim=checkpoint["hidden_dim"],
+        gamma=checkpoint["gamma"],
+        actor_lr=checkpoint["actor_lr"],
+        critic1_lr=checkpoint["critic1_lr"],
+        critic2_lr=checkpoint["critic2_lr"],
+        entropy_coef=checkpoint["entropy_coef"]
     )
 
     agent.actor.load_state_dict(checkpoint["actor"])
-    agent.critic.load_state_dict(checkpoint["critic"])
+    agent.critic1.load_state_dict(checkpoint["critic1"])
+    agent.critic2.load_state_dict(checkpoint["critic2"])
 
     print(f"\nLoaded model: {model_path}")
     print(f"Environment: {env_name}")
@@ -51,17 +57,7 @@ def evaluate(model_path, env_name, act_dim, discrete, episodes):
         total_reward = 0
 
         while not done:
-            obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
-            logits = agent.actor(obs_t)
-            probs = torch.softmax(logits, dim=-1)
-
-            action_idx = torch.argmax(probs).item()
-
-            if discrete:
-                action = action_idx
-            else:
-                action = np.array([PENDULUM_TORQUES[action_idx]], dtype=np.float32)
-
+            action = agent.select_action(obs)
             next_obs, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
 
@@ -82,12 +78,12 @@ def evaluate(model_path, env_name, act_dim, discrete, episodes):
     print(f"Max reward:  {rewards.max()}")
     print("====================================\n")
 
-    # Save rewards graph in graphs/A2C folder
-    os.makedirs("graphs/A2C", exist_ok=True)
-    graph_filename = os.path.join("graphs", "A2C", f"{env_name}_a2c_test_rewards.png")
+    # Save rewards graph in graphs/SAC folder
+    os.makedirs("graphs/SAC", exist_ok=True)
+    graph_filename = os.path.join("graphs", "SAC", f"{env_name}_sac_test_rewards.png")
     plt.figure(figsize=(8, 5))
     plt.plot(range(1, episodes + 1), rewards, marker='o', linestyle='-', color='b')
-    plt.title(f"A2C Test Rewards ({env_name})")
+    plt.title(f"SAC Test Rewards ({env_name})")
     plt.xlabel("Episode")
     plt.ylabel("Reward")
     plt.grid(True, alpha=0.3)
@@ -114,10 +110,10 @@ if __name__ == "__main__":
         print("❌ Invalid choice.")
         exit()
 
-    env_name, discrete, act_dim = ENV_MENU[choice]
+    env_name, discrete, action_bins = ENV_MENU[choice]
 
     # Automatically construct the model path
-    model_path = os.path.join("trained_models", "A2C", f"a2c_{env_name}.pth")
+    model_path = os.path.join("trained_models", "SAC", f"sac_{env_name}.pth")
 
     # Check if the model file exists
     if not os.path.exists(model_path):
@@ -129,7 +125,8 @@ if __name__ == "__main__":
     evaluate(
         model_path=model_path,
         env_name=env_name,
-        act_dim=act_dim,
+        act_dim=action_bins if not discrete else gym.make(env_name).action_space.n,
         discrete=discrete,
-        episodes=episodes
+        episodes=episodes,
+        action_bins=action_bins
     )

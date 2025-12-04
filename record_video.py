@@ -1,160 +1,200 @@
 import os
-from datetime import datetime
-import gymnasium as gym
-import torch
 import numpy as np
+import torch
+import gymnasium as gym
+from datetime import datetime
+
+# Import A2C & SAC
 from models.A2C import A2CAgent
+from models.SAC import SACAgent
+from config import get_config
 
-# ===================================
-# AVAILABLE ENVIRONMENTS
-# ===================================
-
+# ===============================
+# ENV MENU
+# ===============================
 ENV_MENU = {
-    1: {
-        "key": "cartpole",
-        "env_name": "CartPole-v1",
-        "state_dim": 4,
-        "action_dim": 2,
-        "discrete": True
-    },
-    2: {
-        "key": "mountaincar",
-        "env_name": "MountainCar-v0",
-        "state_dim": 2,
-        "action_dim": 3,
-        "discrete": True
-    },
-    3: {
-        "key": "acrobot",
-        "env_name": "Acrobot-v1",
-        "state_dim": 6,
-        "action_dim": 3,
-        "discrete": True
-    },
-    4: {
-        "key": "pendulum",
-        "env_name": "Pendulum-v1",
-        "state_dim": 3,
-        "action_dim": 9,       # discretized torque bins
-        "discrete": False
-    }
+    1: ("CartPole-v1", True),
+    2: ("MountainCar-v0", True),
+    3: ("Acrobot-v1", True),
+    4: ("Pendulum-v1", False),
 }
 
-# Torques for discretized Pendulum
-PENDULUM_TORQUES = np.linspace(-2.0, 2.0, 9)
+# Pendulum discrete torques (must match training)
+PENDULUM_TORQUES = np.linspace(-2, 2, 9).astype(np.float32)
 
 
-# ===================================
-# RECORD VIDEO FUNCTION
-# ===================================
+# ============================================================
+# RUN EPISODE WITH A2C
+# ============================================================
+def run_episode_a2c(env, agent, discrete):
+    obs, _ = env.reset()
+    done = False
+    total_reward = 0
+    steps = 0
 
-def record_video(env_config, num_episodes=3, max_steps=1000):
+    while not done:
+        obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
+        logits = agent.actor(obs_t)
+        probs = torch.softmax(logits, dim=-1)
+        action_idx = torch.argmax(probs).item()
 
-    env_name = env_config["env_name"]
-    state_dim = env_config["state_dim"]
-    action_dim = env_config["action_dim"]
-    discrete = env_config["discrete"]
+        if discrete:
+            action = action_idx
+        else:
+            action = np.array([PENDULUM_TORQUES[action_idx]], dtype=np.float32)
 
-    # ------------------------------------------------------
-    # AUTO LOAD MODEL PATH
-    # ------------------------------------------------------
-    model_path = f"trained_models/A2C/a2c_{env_name}.pth"
+        obs, reward, term, trunc, _ = env.step(action)
+        done = term or trunc
+        total_reward += reward
+        steps += 1
 
-    if not os.path.exists(model_path):
-        print(f"\n❌ ERROR: Model not found: {model_path}")
-        return
+    return steps, total_reward
 
-    print(f"\n📦 Loading model: {model_path}")
 
-    # ------------------------------------------------------
-    # Environment setup
-    # ------------------------------------------------------
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    video_folder = f"videos/A2C_{env_name}_{timestamp}"
+# ============================================================
+# RUN EPISODE WITH SAC
+# ============================================================
+def run_episode_sac(env, agent, discrete):
+    obs, _ = env.reset()
+    done = False
+    total_reward = 0
+    steps = 0
+
+    while not done:
+        obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
+        with torch.no_grad():
+            action_idx = agent.select_action(obs)
+
+        if discrete:
+            action = action_idx
+        else:
+            action = np.array([PENDULUM_TORQUES[action_idx]], dtype=np.float32)
+
+        obs, reward, term, trunc, _ = env.step(action)
+        done = term or trunc
+        total_reward += reward
+        steps += 1
+
+    return steps, total_reward
+
+
+# ============================================================
+# MAIN RECORD FUNCTION
+# ============================================================
+def record_video(algorithm, env_name, is_discrete, episodes):
+    # Load config
+    cfg = get_config(env_name)
+
+    # Load environment
+    env = gym.make(env_name, render_mode="rgb_array")
+    video_folder = f"videos/{algorithm}_{env_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     os.makedirs(video_folder, exist_ok=True)
 
-    print(f"🎥 Saving videos in: {video_folder}")
+    env = gym.wrappers.RecordVideo(env, video_folder, episode_trigger=lambda ep: True)
+    env = gym.wrappers.TimeLimit(env, max_episode_steps=1000)
 
-    env = gym.make(env_name, render_mode="rgb_array")
-    env = gym.wrappers.RecordVideo(env, video_folder,
-                                   episode_trigger=lambda ep: True)
-    env = gym.wrappers.TimeLimit(env, max_episode_steps=max_steps)
+    print(f"\n🎥 Videos will be saved to: {video_folder}")
 
-    # ------------------------------------------------------
-    # Load model
-    # ------------------------------------------------------
-    agent = A2CAgent(
-        obs_dim=state_dim,
-        act_dim=action_dim,
-        hidden_sizes=(128, 128),
-        device="cpu"
-    )
+    # Get dims
+    obs_dim = env.observation_space.shape[0]
+    act_dim = cfg["action_bins"] if not is_discrete else env.action_space.n
 
-    checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
-    agent.actor.load_state_dict(checkpoint["actor"])
-    agent.critic.load_state_dict(checkpoint["critic"])
+    # ============================================================
+    # LOAD AGENT
+    # ============================================================
+    if algorithm == "A2C":
+        model_path = f"trained_models/A2C/a2c_{env_name}.pth"
 
-    print("✅ Model loaded successfully\n")
+        if not os.path.exists(model_path):
+            print(f"❌ Model not found: {model_path}")
+            return
 
-    # ------------------------------------------------------
+        print(f"📦 Loading A2C model: {model_path}")
+
+        agent = A2CAgent(
+            obs_dim=obs_dim,
+            act_dim=act_dim,
+            hidden_sizes=cfg["hidden_sizes"],
+            actor_lr=cfg["actor_lr"],
+            critic_lr=cfg["critic_lr"],
+            gamma=cfg["gamma"],
+            entropy_coef=cfg["entropy_coef"],
+        )
+
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+        agent.actor.load_state_dict(checkpoint["actor"])
+        agent.critic.load_state_dict(checkpoint["critic"])
+
+        run_episode_fn = run_episode_a2c
+
+    else:  # SAC
+        model_path = f"trained_models/SAC/sac_{env_name}.pth"
+
+        if not os.path.exists(model_path):
+            print(f"❌ Model not found: {model_path}")
+            return
+
+        print(f"📦 Loading SAC model: {model_path}")
+
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+
+        agent = SACAgent(
+            state_dim=obs_dim,
+            action_dim=act_dim,
+            hidden_dim=checkpoint["hidden_dim"],
+            gamma=checkpoint["gamma"],
+            actor_lr=checkpoint["actor_lr"],
+            critic1_lr=checkpoint["critic1_lr"],
+            critic2_lr=checkpoint["critic2_lr"],
+            entropy_coef=checkpoint["entropy_coef"],
+        )
+
+        agent.actor.load_state_dict(checkpoint["actor"])
+        agent.critic1.load_state_dict(checkpoint["critic1"])
+        agent.critic2.load_state_dict(checkpoint["critic2"])
+
+        run_episode_fn = run_episode_sac
+
+    # ============================================================
     # RECORD EPISODES
-    # ------------------------------------------------------
-    print(f"🎬 Recording {num_episodes} episodes...\n")
+    # ============================================================
+    print(f"\n🎬 Recording {episodes} episodes...\n")
 
-    for ep in range(num_episodes):
-
-        obs, _ = env.reset()
-        done = False
-        total_reward = 0
-        steps = 0
-
-        while not done:
-            obs_t = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
-            logits = agent.actor(obs_t)
-            probs = torch.softmax(logits, dim=-1)
-            action_idx = torch.argmax(probs).item()
-
-            if discrete:
-                action = action_idx
-            else:
-                # Pendulum torque
-                torque = PENDULUM_TORQUES[action_idx]
-                action = np.array([torque], dtype=np.float32)
-
-            obs, reward, terminated, truncated, _ = env.step(action)
-            done = terminated or truncated
-
-            total_reward += reward
-            steps += 1
-
-        print(f"Episode {ep+1}: Steps={steps}, Reward={total_reward:.1f}")
+    for ep in range(episodes):
+        steps, reward = run_episode_fn(env, agent, is_discrete)
+        print(f"Episode {ep+1}: Steps={steps}, Reward={reward:.1f}")
 
     env.close()
     print(f"\n🎉 DONE! Videos saved to: {video_folder}\n")
 
 
-# ===================================
-# INTERACTIVE MENU (NO CLI ARGUMENTS)
-# ===================================
-
+# ============================================================
+# INTERACTIVE MENU
+# ============================================================
 if __name__ == "__main__":
 
-    print("\n========= VIDEO RECORDER =========")
-    print("Choose environment:")
-    print("1 → CartPole-v1")
-    print("2 → MountainCar-v0")
-    print("3 → Acrobot-v1")
-    print("4 → Pendulum-v1 (discrete)")
-    print("=================================\n")
+    print("\n=========== VIDEO RECORDER ===========")
+    print("Choose Algorithm:")
+    print("1 → A2C")
+    print("2 → SAC")
+    print("======================================\n")
 
-    choice = int(input("Enter choice (1–4): ").strip())
+    algo_choice = int(input("Enter choice (1–2): ").strip())
+    algorithm = "A2C" if algo_choice == 1 else "SAC"
 
-    if choice not in ENV_MENU:
-        print("❌ Invalid choice.")
+    print("\nChoose Environment:")
+    for k, (env_name, _) in ENV_MENU.items():
+        print(f"{k} → {env_name}")
+    print("======================================\n")
+
+    env_choice = int(input("Enter choice (1–4): ").strip())
+
+    if env_choice not in ENV_MENU:
+        print("❌ Invalid environment choice.")
         exit()
 
-    env_config = ENV_MENU[choice]
+    env_name, is_discrete = ENV_MENU[env_choice]
 
     episodes = int(input("\nNumber of episodes to record (default=3): ") or "3")
 
-    record_video(env_config, num_episodes=episodes, max_steps=1000)
+    record_video(algorithm, env_name, is_discrete, episodes)
