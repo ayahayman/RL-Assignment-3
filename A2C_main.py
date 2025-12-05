@@ -81,12 +81,11 @@ def train_a2c(env, agent, episodes, action_values, use_wandb, save_dir):
 
         if use_wandb:
             wandb.log({
-                "episode": ep,
                 "reward": total_reward,
                 "steps": steps,
                 "actor_loss": actor_loss,
                 "critic_loss": critic_loss,
-            })
+            }, step=ep)
 
         print(
             f"Episode {ep+1}/{episodes} | Reward={total_reward:.2f} "
@@ -160,7 +159,7 @@ if __name__ == "__main__":
             config=cfg
         )
 
-    # Create agent
+    # Create agent (will use CUDA if available)
     agent = A2CAgent(
         obs_dim=obs_dim,
         act_dim=act_dim,
@@ -168,8 +167,7 @@ if __name__ == "__main__":
         actor_lr=actor_lr,
         critic_lr=critic_lr,
         gamma=gamma,
-        entropy_coef=entropy_coef,
-        device="cpu"
+        entropy_coef=entropy_coef
     )
 
     # Train

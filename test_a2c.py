@@ -26,14 +26,17 @@ def evaluate(model_path, env_name, act_dim, discrete, episodes):
     env = gym.make(env_name)
     obs_dim = env.observation_space.shape[0]
 
+    # Detect device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Testing on device: {device}")
+    
     # Load checkpoint with weights_only=False
-    checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
 
     agent = A2CAgent(
         obs_dim=obs_dim,
         act_dim=act_dim,
-        hidden_sizes=(128, 128),
-        device="cpu"
+        hidden_sizes=(128, 128)
     )
 
     agent.actor.load_state_dict(checkpoint["actor"])

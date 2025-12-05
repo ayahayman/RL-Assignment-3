@@ -114,86 +114,30 @@ def record_videos(env_name, model_path, output_folder='videos', num_episodes=5):
     print(f"Mean Length: {sum(lengths)/len(lengths):.2f}\n")
 
 def main():
-    """Record videos for selected trained models"""
+    """Record videos for trained models"""
     
-    # Find the latest results directory
-    # Check both current directory and PPO subdirectory
-    results_base = 'ppo_results'
-    if not os.path.exists(results_base):
-        results_base = os.path.join('PPO', 'ppo_results')
+    import argparse
     
-    if not os.path.exists(results_base):
-        print(f"Error: ppo_results directory not found!")
-        print("Please run main.py first to train the models.")
+    parser = argparse.ArgumentParser(description='Record videos of trained PPO agents')
+    parser.add_argument('--env', type=str, required=True, 
+                        choices=['CartPole-v1', 'Acrobot-v1', 'MountainCar-v0', 'Pendulum-v1'],
+                        help='Environment name')
+    parser.add_argument('--model', type=str, required=True,
+                        help='Path to the trained model file (.pth)')
+    parser.add_argument('--episodes', type=int, default=5,
+                        help='Number of episodes to record (default: 5)')
+    parser.add_argument('--output', type=str, default='videos',
+                        help='Output folder for videos (default: videos)')
+    
+    args = parser.parse_args()
+    
+    # Validate model path
+    if not os.path.exists(args.model):
+        print(f"Error: Model file not found: {args.model}")
         return
     
-    # Get latest results folder
-    subdirs = [d for d in os.listdir(results_base) 
-               if os.path.isdir(os.path.join(results_base, d))]
-    
-    if not subdirs:
-        print(f"No results found in {results_base}")
-        return
-    
-    latest_dir = sorted(subdirs)[-1]
-    results_dir = os.path.join(results_base, latest_dir)
-    
-    print(f"\nLoading models from: {results_dir}")
-    
-    # Environment list
-    environments = {
-        '1': ('CartPole-v1', 'CartPole-v1_model.pth'),
-        '2': ('Acrobot-v1', 'Acrobot-v1_model.pth'),
-        '3': ('MountainCar-v0', 'MountainCar-v0_model.pth'),
-        '4': ('Pendulum-v1', 'Pendulum-v1_model.pth')
-    }
-    
-    # Show menu
-    print("\n" + "="*60)
-    print("Select environments to record (comma-separated):")
-    print("="*60)
-    for key, (env_name, _) in environments.items():
-        model_path = os.path.join(results_dir, environments[key][1])
-        status = "✓" if os.path.exists(model_path) else "✗"
-        print(f"  {key}. {env_name} {status}")
-    print("  5. Record ALL environments")
-    print("="*60)
-    
-    choice = input("\nEnter your choice (e.g., 1,3 or 5 for all): ").strip()
-    
-    # Parse selection
-    selected_envs = []
-    if choice == '5':
-        selected_envs = list(environments.keys())[:4]  # Exclude '5' itself
-    else:
-        selected_envs = [c.strip() for c in choice.split(',') if c.strip() in environments]
-    
-    if not selected_envs:
-        print("No valid selection made.")
-        return
-    
-    # Get number of episodes
-    try:
-        num_episodes = int(input("\nNumber of episodes to record per environment (default=5): ").strip() or "5")
-    except ValueError:
-        num_episodes = 5
-    
-    # Create videos folder
-    video_folder = os.path.join('videos', latest_dir)
-    
-    # Record videos for selected environments
-    for key in selected_envs:
-        env_name, model_file = environments[key]
-        model_path = os.path.join(results_dir, model_file)
-        
-        if os.path.exists(model_path):
-            record_videos(env_name, model_path, video_folder, num_episodes=num_episodes)
-        else:
-            print(f"Model not found: {model_path}\n")
-    
-    print(f"{'='*60}")
-    print(f"All videos saved to: {video_folder}")
-    print(f"{'='*60}\n")
+    # Record videos
+    record_videos(args.env, args.model, args.output, num_episodes=args.episodes)
 
 if __name__ == "__main__":
     main()

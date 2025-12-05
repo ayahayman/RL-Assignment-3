@@ -1,9 +1,10 @@
 # train.py
 import gymnasium as gym
 import numpy as np
+import wandb
 from agent import PPOAgent
 
-def train_ppo(env_name, hyperparams, episodes=500, update_freq=2048, verbose=True):
+def train_ppo(env_name, hyperparams, episodes=500, update_freq=2048, verbose=True, use_wandb=False):
     """
     Train PPO agent on a given environment
     
@@ -13,12 +14,27 @@ def train_ppo(env_name, hyperparams, episodes=500, update_freq=2048, verbose=Tru
         episodes: Number of training episodes
         update_freq: Update policy every N steps
         verbose: Print training progress
+        use_wandb: Whether to log to Weights & Biases
     
     Returns:
         agent: Trained PPO agent
         rewards_history: List of episode rewards
         episode_lengths: List of episode lengths
     """
+    # Initialize wandb
+    if use_wandb:
+        wandb.init(
+            project="RL-Assignment-3-PPO",
+            name=f"PPO_{env_name}",
+            config={
+                "environment": env_name,
+                "episodes": episodes,
+                "update_freq": update_freq,
+                **hyperparams
+            },
+            reinit=True
+        )
+    
     env = gym.make(env_name)
     state_dim = env.observation_space.shape[0]
     
@@ -98,6 +114,17 @@ def train_ppo(env_name, hyperparams, episodes=500, update_freq=2048, verbose=Tru
         rewards_history.append(episode_reward)
         episode_lengths.append(episode_length)
         
+        # Log to wandb
+        if use_wandb:
+            wandb.log({
+                f"{env_name}/train_episode": episode + 1,
+                f"{env_name}/train_reward": episode_reward,
+                f"{env_name}/train_length": episode_length,
+                f"{env_name}/train_avg_reward_50": np.mean(rewards_history[-50:]) if len(rewards_history) >= 50 else np.mean(rewards_history),
+                f"{env_name}/train_avg_length_50": np.mean(episode_lengths[-50:]) if len(episode_lengths) >= 50 else np.mean(episode_lengths),
+                f"{env_name}/train_total_steps": steps
+            })
+        
         if verbose and (episode + 1) % 50 == 0:
             avg_reward = np.mean(rewards_history[-50:])
             avg_length = np.mean(episode_lengths[-50:])
@@ -106,4 +133,5 @@ def train_ppo(env_name, hyperparams, episodes=500, update_freq=2048, verbose=Tru
                   f"Avg Length: {avg_length:.2f}")
     
     env.close()
+    
     return agent, rewards_history, episode_lengths

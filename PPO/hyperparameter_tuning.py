@@ -1,8 +1,9 @@
 # hyperparameter_tuning.py
 import numpy as np
+import wandb
 from train import train_ppo
 
-def hyperparameter_search(env_name, num_trials=5, episodes_per_trial=200):
+def hyperparameter_search(env_name, num_trials=5, episodes_per_trial=200, use_wandb=False):
     """
     Perform random hyperparameter search
     
@@ -67,7 +68,8 @@ def hyperparameter_search(env_name, num_trials=5, episodes_per_trial=200):
             env_name, 
             hyperparams, 
             episodes=episodes_per_trial,
-            verbose=False
+            verbose=False,
+            use_wandb=use_wandb
         )
         
         # Evaluate on last 50 episodes
@@ -79,6 +81,16 @@ def hyperparameter_search(env_name, num_trials=5, episodes_per_trial=200):
         })
         
         print(f"Average Reward (last 50 episodes): {avg_reward:.2f}\n")
+        
+        # Log hyperparameter trial to wandb
+        if use_wandb:
+            wandb.log({
+                f"{env_name}/hp_trial": trial + 1,
+                f"{env_name}/hp_avg_reward": avg_reward,
+                f"{env_name}/hp_learning_rate": hyperparams['learning_rate'],
+                f"{env_name}/hp_gamma": hyperparams['gamma'],
+                f"{env_name}/hp_clip_range": hyperparams['clip_range']
+            })
         
         if avg_reward > best_reward:
             best_reward = avg_reward

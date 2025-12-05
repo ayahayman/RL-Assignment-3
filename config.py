@@ -100,52 +100,60 @@ A2C_CONFIG = {
 
 SAC_CONFIG = {
     "default": {
-        "Gamma": 0.999,
-        "Actor LR": 0.0004,
-        "Critic 1 LR": 0.001,
-        "Critic 2 LR": 0.001,
-        "Entropy Coef": 0.01,
-        "Hidden Dim": 128,
-        "Training Episodes": 500
+        "Gamma": 0.99,
+        "Actor LR": 0.0003,
+        "Critic LR": 0.0003,
+        "Tau": 0.005,
+        "Alpha": 0.2,
+        "Hidden Dim": 256,
+        "Training Episodes": 500,
+        "Batch Size": 256,
+        "Buffer Size": 1000000,
+        "wandb": True
     },
     "CartPole-v1": {
         "Gamma": 0.99,
-        "Actor LR": 0.0004,
-        "Critic 1 LR": 0.0005,
-        "Critic 2 LR": 0.0005,
-        "Entropy Coef": 0.01,
-        "Hidden Dim": 128,
+        "Actor LR": 0.0003,
+        "Critic LR": 0.0003,
+        "Tau": 0.005,
+        "Alpha": 0.2,
+        "Hidden Dim": 256,
         "Training Episodes": 500,
-        "n_steps": 5
-
+        "Batch Size": 128,
+        "Buffer Size": 100000
     },
     "Acrobot-v1": {
         "Gamma": 0.99,
-        "Actor LR": 0.0005,
-        "Critic 1 LR": 0.001,
-        "Critic 2 LR": 0.001,
-        "Entropy Coef": 0,
-        "Hidden Dim": 128,
-        "Training Episodes": 500
+        "Actor LR": 0.0003,
+        "Critic LR": 0.0003,
+        "Tau": 0.005,
+        "Alpha": 0.2,
+        "Hidden Dim": 256,
+        "Training Episodes": 800,
+        "Batch Size": 128,
+        "Buffer Size": 100000
     },
     "MountainCar-v0": {
         "Gamma": 0.99,
-        "Actor LR": 0.0007,
-        "Critic 1 LR": 0.001,
-        "Critic 2 LR": 0.001,
-        "Entropy Coef": 0,
-        "Hidden Dim": 128,
-        "Training Episodes": 1000
-    },
-   "Pendulum-v1": {
-        "Gamma": 0.97,
-        "Actor LR": 0.00025,
-        "Critic 1 LR": 0.0005,
-        "Critic 2 LR": 0.0005,
-        "Entropy Coef": 0.005,
+        "Actor LR": 0.0005,
+        "Critic LR": 0.0005,
+        "Tau": 0.005,
+        "Alpha": 0.2,
         "Hidden Dim": 256,
-        "Training Episodes": 1000
-    
+        "Training Episodes": 1000,
+        "Batch Size": 128,
+        "Buffer Size": 100000
+    },
+    "Pendulum-v1": {
+        "Gamma": 0.99,
+        "Actor LR": 0.0003,
+        "Critic LR": 0.0003,
+        "Tau": 0.005,
+        "Alpha": 0.2,
+        "Hidden Dim": 256,
+        "Training Episodes": 300,
+        "Batch Size": 256,
+        "Buffer Size": 1000000
     }
 }
 # Add this new function for SAC

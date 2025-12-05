@@ -1,8 +1,9 @@
 # test.py
 import gymnasium as gym
 import numpy as np
+import wandb
 
-def test_agent(agent, env_name, num_tests=100, render=False, verbose=True):
+def test_agent(agent, env_name, num_tests=100, render=False, verbose=True, use_wandb=False):
     """
     Test trained agent on environment
     
@@ -58,6 +59,16 @@ def test_agent(agent, env_name, num_tests=100, render=False, verbose=True):
             print(f"Test {test + 1}/{num_tests} completed")
     
     env.close()
+    
+    # Log test statistics to wandb
+    if use_wandb:
+        wandb.log({
+            f"{env_name}/test_mean_reward_final": np.mean(test_rewards),
+            f"{env_name}/test_std_reward_final": np.std(test_rewards),
+            f"{env_name}/test_min_reward": np.min(test_rewards),
+            f"{env_name}/test_max_reward": np.max(test_rewards),
+            f"{env_name}/test_mean_length_final": np.mean(test_lengths)
+        })
     
     if verbose:
         print(f"\nTest Results:")

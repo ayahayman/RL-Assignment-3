@@ -5,6 +5,10 @@ import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np
 
+# Automatically select device
+default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"A2C default device: {default_device}")
+
 
 # -------------------------------------------------
 # Actor network
@@ -55,16 +59,17 @@ class A2CAgent:
         critic_lr=3e-4,
         gamma=0.99,
         entropy_coef=0.001,
-        device="cpu",
+        device=None,
     ):
         self.gamma = gamma
         self.entropy_coef = entropy_coef
-        self.device = device
+        self.device = device if device is not None else default_device
+        print(f"A2C Agent using device: {self.device}")
 
         self.act_dim = act_dim
         
-        self.actor = ActorNetwork(obs_dim, act_dim, hidden_sizes).to(device)
-        self.critic = CriticNetwork(obs_dim, hidden_sizes).to(device)
+        self.actor = ActorNetwork(obs_dim, act_dim, hidden_sizes).to(self.device)
+        self.critic = CriticNetwork(obs_dim, hidden_sizes).to(self.device)
 
         self.actor_opt = optim.Adam(self.actor.parameters(), lr=actor_lr)
         self.critic_opt = optim.Adam(self.critic.parameters(), lr=critic_lr)

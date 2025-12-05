@@ -3,6 +3,7 @@ import os
 import sys
 import argparse
 import numpy as np
+import wandb
 from train import train_ppo
 from test import test_agent
 from hyperparameter_tuning import hyperparameter_search
@@ -21,8 +22,26 @@ def main():
     parser.add_argument('--episodes', type=int, default=2000, help='Final training episodes (default: 2000)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed (default: 42)')
     parser.add_argument('--skip-tuning', action='store_true', help='Skip hyperparameter tuning and use defaults')
+    parser.add_argument('--no-wandb', action='store_true', help='Disable wandb logging')
     
     args = parser.parse_args()
+    
+    use_wandb = not args.no_wandb
+    
+    # Initialize wandb
+    if use_wandb:
+        wandb.init(
+            project="RL-Assignment-3-PPO",
+            name=f"PPO_Training_seed{args.seed}",
+            config={
+                "environments": args.envs,
+                "trials": args.trials,
+                "trial_episodes": args.trial_episodes,
+                "final_episodes": args.episodes,
+                "seed": args.seed,
+                "skip_tuning": args.skip_tuning
+            }
+        )
     
     # Set random seed
     set_seed(args.seed)
@@ -78,7 +97,8 @@ def main():
             best_params, tuning_results = hyperparameter_search(
                 env_name, 
                 num_trials=args.trials,
-                episodes_per_trial=args.trial_episodes
+                episodes_per_trial=args.trial_episodes,
+                use_wandb=use_wandb
             )
             
             # Plot hyperparameter results
@@ -92,7 +112,8 @@ def main():
             env_name, 
             best_params, 
             episodes=args.episodes,
-            verbose=True
+            verbose=True,
+            use_wandb=use_wandb
         )
         
         # Plot training curves
@@ -106,7 +127,7 @@ def main():
         
         # Step 4: Test the trained agent
         print(f"\nStep 3: Testing Agent (100 episodes)")
-        test_rewards, test_lengths = test_agent(agent, env_name, num_tests=100, verbose=True)
+        test_rewards, test_lengths = test_agent(agent, env_name, num_tests=100, verbose=True, use_wandb=use_wandb)
         
         # Plot test results
         test_plot_path = os.path.join(results_dir, f'{env_name}_test.png')
@@ -143,6 +164,16 @@ def main():
         env_results_path = os.path.join(results_dir, f'{env_name}_results.json')
         save_results(results, env_results_path)
         
+        # Log summary to wandb
+        if use_wandb:
+            wandb.log({
+                f"{env_name}/final_train_reward": results['training_stats']['final_train_reward'],
+                f"{env_name}/final_train_length": results['training_stats']['final_train_length'],
+                f"{env_name}/test_mean_reward": results['test_stats']['mean_reward'],
+                f"{env_name}/test_std_reward": results['test_stats']['std_reward'],
+                f"{env_name}/test_mean_length": results['test_stats']['mean_length']
+            })
+        
         print(f"\n{'='*80}\n")
     
     # Save all results
@@ -151,6 +182,10 @@ def main():
     
     # Print final summary
     print_summary(all_results)
+    
+    # Finish wandb
+    if use_wandb:
+        wandb.finish()
     
     print(f"All results saved to: {results_dir}")
 

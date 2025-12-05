@@ -79,8 +79,9 @@ class PPOAgent:
         returns = torch.FloatTensor(returns).to(self.device)
         advantages = torch.FloatTensor(advantages).to(self.device)
         
-        # Normalize advantages
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        # Normalize advantages (only if we have more than 1 sample)
+        if len(advantages) > 1:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
         # PPO update
         for _ in range(self.epochs):
@@ -118,6 +119,11 @@ class PPOAgent:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
                 self.optimizer.step()
+                
+                # Check for NaN and stop if found
+                if torch.isnan(loss):
+                    print("Warning: NaN detected in loss, skipping update")
+                    break
         
         self.memory.clear()
     

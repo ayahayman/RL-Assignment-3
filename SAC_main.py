@@ -2,8 +2,8 @@ import os
 import numpy as np
 import torch
 import gymnasium as gym
-import wandb  # Add W&B import
-from utils.discrete_pendulum import DiscretePendulum
+import wandb
+from utils.continuous_cartpole import ContinuousCartPole, ContinuousMountainCar, ContinuousAcrobot
 from models.SAC import SACAgent
 from config import get_sac_config
 
@@ -23,13 +23,35 @@ ENV_MENU = {
 # ============================================================
 
 def make_env_and_actions(env_name: str, action_bins: int):
-    if env_name == "Pendulum-v1":
-        env = DiscretePendulum(gym.make(env_name), num_actions=action_bins)
+    """
+    Create environment with appropriate wrapper to make it continuous.
+    All environments now use continuous action spaces for SAC.
+    """
+    base_env = gym.make(env_name)
+    
+    if env_name == "CartPole-v1":
+        # Wrap CartPole to make it continuous
+        env = ContinuousCartPole(base_env)
+    elif env_name == "MountainCar-v0":
+        # Wrap MountainCar to make it continuous
+        env = ContinuousMountainCar(base_env)
+    elif env_name == "Acrobot-v1":
+        # Acrobot already works well with discrete actions for SAC
+        env = base_env
+    elif env_name == "Pendulum-v1":
+        # Pendulum is ALREADY continuous - SAC's native environment!
+        # No wrapper needed
+        env = base_env
     else:
-        env = gym.make(env_name)
+        env = base_env
 
     state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.n if isinstance(env.action_space, gym.spaces.Discrete) else env.action_space.shape[0]
+    
+    # Now all environments have continuous action spaces
+    if isinstance(env.action_space, gym.spaces.Box):
+        action_dim = env.action_space.shape[0]
+    else:
+        action_dim = env.action_space.n
 
     return env, state_dim, action_dim
 
@@ -70,19 +92,9 @@ def train_sac(env, agent, episodes, save_dir, use_wandb):
             steps += 1
 
             # --- UPDATE LOGIC ---
-            should_update = False
-
-            if env_name == "MountainCar-v0":
-                # For MountainCar, update ONLY once at episode end
-                should_update = done
-            else:
-                # Normal n-step update
-                if len(agent.memory) >= agent.n_steps or done:
-                    should_update = True
-
-            if should_update:
+            # Update every step if we have enough samples
+            if len(agent.memory) >= agent.batch_size:
                 actor_l, c1_l, c2_l = agent.update()
-                agent.reset_memory()
 
                 # Accumulate losses for reporting
                 episode_actor_loss += actor_l
@@ -99,13 +111,12 @@ def train_sac(env, agent, episodes, save_dir, use_wandb):
         # Log metrics to W&B
         if use_wandb:
             wandb.log({
-                "episode": ep,
                 "reward": total_reward,
                 "steps": steps,
                 "actor_loss": episode_actor_loss,
                 "critic1_loss": episode_critic1_loss,
                 "critic2_loss": episode_critic2_loss,
-            })
+            }, step=ep)
 
         print(
             f"Episode {ep+1}/{episodes} | Reward={total_reward:.2f} | Steps={steps} "
@@ -122,16 +133,21 @@ def train_sac(env, agent, episodes, save_dir, use_wandb):
         "actor": agent.actor.state_dict(),
         "critic1": agent.critic1.state_dict(),
         "critic2": agent.critic2.state_dict(),
+        "target_critic1": agent.target_critic1.state_dict(),
+        "target_critic2": agent.target_critic2.state_dict(),
         "env": env_name,
         "state_dim": agent.state_dim,
         "action_dim": agent.action_dim,
         "hidden_dim": agent.hidden_dim,
         "gamma": agent.gamma,
+        "tau": agent.tau,
         "actor_lr": agent.actor_lr,
-        "critic1_lr": agent.critic1_lr,
-        "critic2_lr": agent.critic2_lr,
-        "entropy_coef": agent.entropy_coef,
-        "n_steps": agent.n_steps
+        "critic_lr": agent.critic_lr,
+        "alpha": agent.alpha,
+        "batch_size": agent.batch_size,
+        "buffer_size": len(agent.memory),
+        "action_low": agent.action_low.cpu().item(),
+        "action_high": agent.action_high.cpu().item()
     }, save_path)
 
     print(f"\n💾 Model saved to {save_path}")
@@ -139,17 +155,17 @@ def train_sac(env, agent, episodes, save_dir, use_wandb):
 
 
 # ============================================================
-# MAIN MENU (NO ARGUMENTS)
+# MAIN MENU
 # ============================================================
 
 if __name__ == "__main__":
-    print("\n======= SAC TRAINER =======")
+    print("\n======= SAC TRAINER (CONTINUOUS) =======")
     print("Select environment to train:")
-    print("1 → CartPole-v1")
-    print("2 → MountainCar-v0")
-    print("3 → Acrobot-v1")
-    print("4 → Pendulum-v1 (discretized)")
-    print("===========================\n")
+    print("1 → CartPole-v1 (Continuous Wrapper)")
+    print("2 → MountainCar-v0 (Continuous Wrapper)")
+    print("3 → Acrobot-v1 (Continuous Wrapper)")
+    print("4 → Pendulum-v1 (Native Continuous)")
+    print("========================================\n")
 
     choice = int(input("Enter choice (1–4): ").strip())
 
@@ -158,19 +174,22 @@ if __name__ == "__main__":
         exit()
 
     env_name = ENV_MENU[choice]
-    print("Selected environment:", env_name)
+    print(f"✅ Selected environment: {env_name}")
+    
     # Load full config for this environment
     cfg = get_sac_config(env_name)
 
     # Unpack settings
     gamma = cfg["Gamma"]
     actor_lr = cfg["Actor LR"]
-    critic1_lr = cfg["Critic 1 LR"]
-    critic2_lr = cfg["Critic 2 LR"]
-    entropy_coef = cfg["Entropy Coef"]
+    critic_lr = cfg["Critic LR"]
+    tau = cfg.get("Tau", 0.005)
+    alpha = cfg.get("Alpha", 0.2)
     hidden_dim = cfg["Hidden Dim"]
     episodes = cfg["Training Episodes"]
-    action_bins = cfg.get("Action Bins", 9)  # Default to 9 for Pendulum
+    batch_size = cfg.get("Batch Size", 256)
+    buffer_size = cfg.get("Buffer Size", 1000000)
+    action_bins = cfg.get("Action Bins", 9)
     save_dir = "trained_models/SAC"
 
     # W&B logging
@@ -178,14 +197,27 @@ if __name__ == "__main__":
     if use_wandb:
         wandb.init(
             project="RL-Assignment3",
-            name=f"SAC_{env_name}",
+            name=f"SAC_{env_name}_Continuous",
             config=cfg
         )
 
     print(f"\n📌 Loaded hyperparameters from config.py:\n{cfg}\n")
 
-    # Create environment
+    # Create environment with continuous wrapper
     env, state_dim, action_dim = make_env_and_actions(env_name, action_bins)
+    
+    print(f"📊 State dim: {state_dim}, Action dim: {action_dim}")
+    print(f"📊 Action space: {env.action_space}\n")
+
+    # Get action bounds from environment
+    if isinstance(env.action_space, gym.spaces.Box):
+        action_low = float(env.action_space.low[0])
+        action_high = float(env.action_space.high[0])
+    else:
+        action_low = -1.0
+        action_high = 1.0
+    
+    print(f"📊 Action bounds: [{action_low}, {action_high}]\n")
 
     # Create agent
     agent = SACAgent(
@@ -194,9 +226,13 @@ if __name__ == "__main__":
         hidden_dim=hidden_dim,
         gamma=gamma,
         actor_lr=actor_lr,
-        critic1_lr=critic1_lr,
-        critic2_lr=critic2_lr,
-        entropy_coef=entropy_coef
+        critic_lr=critic_lr,
+        tau=tau,
+        alpha=alpha,
+        batch_size=batch_size,
+        buffer_size=buffer_size,
+        action_low=action_low,
+        action_high=action_high
     )
 
     # Train
